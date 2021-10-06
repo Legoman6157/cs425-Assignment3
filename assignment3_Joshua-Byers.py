@@ -5,26 +5,38 @@ Created on Thu Jan  1 00:00:00 1970
 @author: jbyers3
 """
 
-"""
-    Pick k random spots.
-    Get the color of those spots.
-    For all positions, find the closest matching color.
-    Set all positions to have the closest color (smallest change in rgb) once
-        you begin changing.
-"""
-
 import numpy as np
 from skimage import io
+import matplotlib.pyplot as plt
 import os
 import time
 
-#Returns the distance between [position1] and [position2]
-def getDistance(position1, position2):
-    a = abs(position2[0] - position1[0])
-    b = abs(position2[1] - position1[1])
-    c = abs(position2[2] - position1[2])
+#Returns the distance between [color1] and [color2]
+def getDistance(color1, color2):
+    a = abs(int(color2[0]) - int(color1[0]))
+    b = abs(int(color2[1]) - int(color1[1]))
+    c = abs(int(color2[2]) - int(color1[2]))
     d = (a**2 + b**2 + c**2)**.5
     return d
+
+#From the given [image], return the colors at the given [positions]
+def getColorsFromImage(image, positions):
+    colors = []
+    for position in positions:
+        colors.append(image[ position[0] ][ position[1] ])
+    return colors
+
+#Check to see if color [c1] is the same color as color [c2].
+def sameColor(c1, c2):
+    return (c1[0] == c2[0]) and (c1[1] == c2[1]) and (c1[2] == c2[2])
+        
+
+#Get the index of the given [c]olor from the given array of [colors]
+def getCentroidNum(c, colors):
+    for i in range(len(colors)):
+        if np.array_equiv(c, colors[i]):
+            return i
+    return -1
 
 #Relative to point [p], returns the closest position from the given list of
 #   [positions]
@@ -68,63 +80,135 @@ def generateRandomPositions(n, nrows, ncols):
 
     return positions
 
-def getColors(positions, image):
-    colors = np.empty(len(positions))
-    for position in positions:
-        colors.append(image[ position[0] ][ position[1] ])
-    return colors
-
+#Assignment function.
 def kmeans(k, image):
+    allChanges = []
 
-    
-    nrows = image.shape[1]
-    ncols = image.shape[0]
+    #Number of rows and columns for the given image
+    nrows = image.shape[0]
+    ncols = image.shape[1]
 
+    #Get random positions to start out with and get their respective colors
+    #   in the image.
     randomPositions = generateRandomPositions(k, nrows, ncols)
-    clusterCenters = getColors(randomPositions, image)
+    clusterCenters = getColorsFromImage(image, randomPositions)
 
-    clusterAssignments = np.empty((nrows, ncols, 2), dtype="int")
-    
-    #smallestChanges just keeps track of the smallest changes in the Red,
-    #   Green, and Blue values.
-    smallestChanges = np.empty((3), dtype="int")
+    #newImage is the new image to be returned with only k colors
+    newImage = np.empty((nrows, ncols, 3), dtype="int")
     stopIterating = 0
     
-    
+    numIterations = 0
 
     #Algorithm for K-Means(D, K):
     #repeat
-    # while True:
+    while True:
+        print("iteration number: {}".format(numIterations))
     #   for n=1 to N do
-    for c in range(ncols):
+        clusterSums = np.zeros((k, 3), dtype="float")
+        clusterSizes = np.zeros((k), dtype="int")
+        # for r in range(nrows):
+        #     for c in range(ncols):
+        #       z_n <- argmin_k ||{mew}_k - x_n||   //assign example n to closest
+        #                                               center
+        #   end for
+        #   for k=1 to K do
         for r in range(nrows):
-                #The character limit for good-looking code can be difficult at
-                #   times.
-                #   row -> r,
-                #   col -> c
-            clusterAssignments[c][r]=getClosestColor([c, r], clusterCenters)
-    #       z_n <- argmin_k ||{mew}_k - x_n||   //assign example n to closest
-    #                                               center
+            for c in range(ncols):
+        #       X_k <- { x_N: z_n = k }             //points assigned to cluster k
+                newImage[r][c]=getClosestColor(image[r][c], clusterCenters)
+                centroidNum = getCentroidNum(newImage[r][c], clusterCenters)
+                clusterSums[centroidNum][0] += image[r][c][0]
+                clusterSums[centroidNum][1] += image[r][c][1]
+                clusterSums[centroidNum][2] += image[r][c][2]
+                clusterSizes[centroidNum] += 1
+                
+        #       {mew}_k <- mean(X_k)                //re-estimate center of
+        #                                               cluster k
+        
+        for i in range(k):
+            print("clusterSums[{}]:".format(i), clusterSums[i])
+        for i in range(k):
+            print("clusterSizes[{}]:".format(i), clusterSizes[i])
+        
+        means = np.zeros((k,3), dtype="float")
+        changes = np.empty((k, 3), dtype="float")
+    
+        #largestChanges track of the largest changes in the Red,
+        #   Green, and Blue values.
+        largestChanges = np.empty((3), dtype="float")
+
+        #Set up the base means and their respective changes relative to the
+        #   original positions
+        means[0][0] = clusterSums[0][0]/clusterSizes[0]
+        means[0][1] = clusterSums[0][1]/clusterSizes[0]
+        means[0][2] = clusterSums[0][2]/clusterSizes[0]
+        
+        changes[0][0] = abs(int(clusterCenters[0][0] - means[0][0]))
+        changes[0][1] = abs(int(clusterCenters[0][1] - means[0][1]))
+        changes[0][2] = abs(int(clusterCenters[0][2] - means[0][2]))
+        
+        for i in range(1, len(clusterSums)):
+            if (clusterSizes[i] != 0):
+                means[i][0] = clusterSums[i][0]/clusterSizes[i]
+                means[i][1] = clusterSums[i][1]/clusterSizes[i]
+                means[i][2] = clusterSums[i][2]/clusterSizes[i]
+            else:
+                means[i][0] = 0
+                means[i][1] = 0
+                means[i][2] = 0
+
+            changes[i][0] = abs(clusterCenters[i][0] - means[i][0])
+            changes[i][1] = abs(clusterCenters[i][1] - means[i][1])
+            changes[i][2] = abs(clusterCenters[i][2] - means[i][2])
+        
+        allChanges.append(changes)
+        
+        for i in range(k):
+            print("means[{}]:".format(i), means[i])
+        for i in range(k):
+            print("changes[{}]:".format(i), changes[i])
+
+        largestChanges[0] = changes[0][0]
+        largestChanges[1] = changes[0][1]
+        largestChanges[2] = changes[0][2]
+
+        for i in range(1, k):
+            if largestChanges[0] < changes[i][0]:
+                largestChanges[0] = changes[i][0]
+
+            if largestChanges[1] < changes[i][1]:
+                largestChanges[1] = changes[i][1]
+
+            if largestChanges[2] < changes[i][2]:
+                largestChanges[2] = changes[i][2]
+        print("largestChanges[0]: {}".format(largestChanges[0]))
+        print("largestChanges[1]: {}".format(largestChanges[1]))
+        print("largestChanges[2]: {}".format(largestChanges[2]))
+
     #   end for
-    #   for k=1 to K do
-    #       X_k <- { x_N: z_n = k }             //points assigned to cluster k
-    #       {mew}_k <- mean(X_k)                //re-estimate center of
-    #                                               cluster k
-    #   end for
-    #until {mew}s stop changing                 //Until largest change is < 1,
-        # for change in smallestChanges:
-        #     if change < 1:
-        #         stopIterating = 1
-        # if stopIterating:
-        #     break;
-    #                                               but stop after 24
-    #                                               iterations
+    #until {mew}s stop changing                 //Stop after the largest
+    #                                           //  change is < 1, or you
+    #                                           //  have gone through 24
+    #                                           //  iterations.
+        #Check if the largest change is less than one.
+        if max(largestChanges[0], largestChanges[1], largestChanges[2]) < 1:
+            stopIterating = 1
+        if stopIterating or (numIterations == 24):
+            break;
+        else:
+            for i in range(k):
+                #Set the new center of the clusters as the means of the
+                #   previous groups.
+                clusterCenters[i][0] = int(means[i][0])
+                clusterCenters[i][1] = int(means[i][1])
+                clusterCenters[i][2] = int(means[i][2])
+            numIterations += 1
     #return z                                   //return cluster assignments
-    return clusterAssignments
+    return newImage, allChanges, clusterSizes
     
 
 if __name__ == "__main__":
-    images = {}
+    images = []
     imageTypes = [".jpg"]
     files = os.listdir(".")
     figures = []
@@ -132,16 +216,41 @@ if __name__ == "__main__":
     for file in files:
         for imgType in imageTypes:
             if file.endswith(imgType):
-                images[file] = io.imread(file)
+                images.append(io.imread(file))
                 continue
     
+    #Required k values for assignment
     k_values = [4, 16, 32]
-    allAssignments = []
     
-    for key in images:
-        # fig, axs = plt.subplots(2, 2)
-        # figures.append(fig)
+    newImage = []
+    allChanges = []
+    allSizes = []
+    
+
+    i = 0
+
+    #For all found images of the allowed imageTypes,
+    for image in images:
+        print("Image number {}".format(i))
+        allImages = []
+        allImages.append(image)
+        changes = []
+        sizes = []
+
+        #For all k values required by the assignment,
         for k_value in k_values:
-            print(key, images[key].shape, "k={}".format(k_value))
-            allAssignments.append(kmeans(k_value, images[key]))
-        # axs[0][0].imshow(images[key])
+            print("k={}".format(k_value))
+            #kmeans returns the image, the list of all changes for that image,
+            #   and a list of the colors (clusterCenters) for that image.
+            newImage, changes, sizes = kmeans(k_value, image)
+            allImages.append(newImage)
+        
+        allChanges.append(changes)
+        allSizes.append(sizes)
+
+        #Show all images
+        fig, ((ax1,ax2),(ax3,ax4)) = plt.subplots(2,2)
+        ax1.imshow(allImages[0])
+        ax2.imshow(allImages[1])
+        ax3.imshow(allImages[2])
+        ax4.imshow(allImages[3])

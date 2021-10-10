@@ -21,14 +21,10 @@ def getDistance(color1, color2):
 
 #From the given [image], return the colors at the given [positions]
 def getColorsFromImage(image, positions):
-    colors = []
-    for position in positions:
-        colors.append(image[ position[0] ][ position[1] ])
+    colors = np.empty((len(positions), 3), dtype="int")
+    for i in range(len(positions)):
+        colors[i] = image[ positions[i][0] ][ positions[i][1] ]
     return colors
-
-#Check to see if color [c1] is the same color as color [c2].
-def sameColor(c1, c2):
-    return (c1[0] == c2[0]) and (c1[1] == c2[1]) and (c1[2] == c2[2])
         
 
 #Get the index of the given [c]olor from the given array of [colors]
@@ -71,12 +67,15 @@ def generateRandomPositions(n, nrows, ncols):
     seed = int((time.time()*10000000)%(2**32))
     rand = np.random.RandomState(seed)
 
-    positions = []
+    positions = np.full((n, 2), -1)
 
     for i in range(n):
         a = rand.randint(0, nrows)
         b = rand.randint(0, ncols)
-        positions.append([a, b])
+        while [a, b] in positions:
+            a = rand.randint(0, nrows)
+            b = rand.randint(0, ncols)
+        positions[i] = [a, b]
 
     return positions
 
@@ -96,13 +95,19 @@ def kmeans(k, image):
     #newImage is the new image to be returned with only k colors
     newImage = np.empty((nrows, ncols, 3), dtype="int")
     stopIterating = 0
-    
+
     numIterations = 0
 
     #Algorithm for K-Means(D, K):
     #repeat
     while True:
-        print("iteration number: {}".format(numIterations))
+        print("\niteration number: {}".format(numIterations))
+        for i in range(k):
+            print("clusterCenters[{}]:".format(i), clusterCenters[i])
+
+
+        clusterCenterSums = np.zeros((k), dtype="int")
+
     #   for n=1 to N do
         clusterSums = np.zeros((k, 3), dtype="float")
         clusterSizes = np.zeros((k), dtype="int")
@@ -117,9 +122,7 @@ def kmeans(k, image):
         #       X_k <- { x_N: z_n = k }             //points assigned to cluster k
                 newImage[r][c]=getClosestColor(image[r][c], clusterCenters)
                 centroidNum = getCentroidNum(newImage[r][c], clusterCenters)
-                clusterSums[centroidNum][0] += image[r][c][0]
-                clusterSums[centroidNum][1] += image[r][c][1]
-                clusterSums[centroidNum][2] += image[r][c][2]
+                clusterSums[centroidNum] += image[r][c]
                 clusterSizes[centroidNum] += 1
                 
         #       {mew}_k <- mean(X_k)                //re-estimate center of
@@ -130,7 +133,7 @@ def kmeans(k, image):
         for i in range(k):
             print("clusterSizes[{}]:".format(i), clusterSizes[i])
         
-        means = np.zeros((k,3), dtype="float")
+        means = np.empty((k,3), dtype="float")
         changes = np.empty((k, 3), dtype="float")
     
         #largestChanges track of the largest changes in the Red,
@@ -139,51 +142,25 @@ def kmeans(k, image):
 
         #Set up the base means and their respective changes relative to the
         #   original positions
-        means[0][0] = clusterSums[0][0]/clusterSizes[0]
-        means[0][1] = clusterSums[0][1]/clusterSizes[0]
-        means[0][2] = clusterSums[0][2]/clusterSizes[0]
         
-        changes[0][0] = abs(int(clusterCenters[0][0] - means[0][0]))
-        changes[0][1] = abs(int(clusterCenters[0][1] - means[0][1]))
-        changes[0][2] = abs(int(clusterCenters[0][2] - means[0][2]))
-        
-        for i in range(1, len(clusterSums)):
+        for i in range(k):
             if (clusterSizes[i] != 0):
-                means[i][0] = clusterSums[i][0]/clusterSizes[i]
-                means[i][1] = clusterSums[i][1]/clusterSizes[i]
-                means[i][2] = clusterSums[i][2]/clusterSizes[i]
+                means[i] = clusterSums[i]/clusterSizes[i]
             else:
-                means[i][0] = 0
-                means[i][1] = 0
-                means[i][2] = 0
+                means[i] = 0
 
-            changes[i][0] = abs(clusterCenters[i][0] - means[i][0])
-            changes[i][1] = abs(clusterCenters[i][1] - means[i][1])
-            changes[i][2] = abs(clusterCenters[i][2] - means[i][2])
+            changes[i] = abs(clusterCenters[i] - means[i])
         
-        allChanges.append(changes)
+        allChanges.append([changes])
         
         for i in range(k):
             print("means[{}]:".format(i), means[i])
         for i in range(k):
             print("changes[{}]:".format(i), changes[i])
 
-        largestChanges[0] = changes[0][0]
-        largestChanges[1] = changes[0][1]
-        largestChanges[2] = changes[0][2]
-
-        for i in range(1, k):
-            if largestChanges[0] < changes[i][0]:
-                largestChanges[0] = changes[i][0]
-
-            if largestChanges[1] < changes[i][1]:
-                largestChanges[1] = changes[i][1]
-
-            if largestChanges[2] < changes[i][2]:
-                largestChanges[2] = changes[i][2]
-        print("largestChanges[0]: {}".format(largestChanges[0]))
-        print("largestChanges[1]: {}".format(largestChanges[1]))
-        print("largestChanges[2]: {}".format(largestChanges[2]))
+        for i in range(3):
+            largestChanges[i] = max(changes.T[i])
+        print("largestChanges:", largestChanges)
 
     #   end for
     #until {mew}s stop changing                 //Stop after the largest
@@ -193,15 +170,14 @@ def kmeans(k, image):
         #Check if the largest change is less than one.
         if max(largestChanges[0], largestChanges[1], largestChanges[2]) < 1:
             stopIterating = 1
+
         if stopIterating or (numIterations == 24):
             break;
         else:
             for i in range(k):
                 #Set the new center of the clusters as the means of the
-                #   previous groups.
-                clusterCenters[i][0] = int(means[i][0])
-                clusterCenters[i][1] = int(means[i][1])
-                clusterCenters[i][2] = int(means[i][2])
+                #    previous groups.
+                clusterCenters[i] = means[i]
             numIterations += 1
     #return z                                   //return cluster assignments
     return newImage, allChanges, clusterSizes
@@ -220,6 +196,7 @@ if __name__ == "__main__":
                 continue
     
     #Required k values for assignment
+
     k_values = [4, 16, 32]
     
     newImage = []
@@ -244,9 +221,9 @@ if __name__ == "__main__":
             #   and a list of the colors (clusterCenters) for that image.
             newImage, changes, sizes = kmeans(k_value, image)
             allImages.append(newImage)
-        
-        allChanges.append(changes)
-        allSizes.append(sizes)
+            allChanges.append(changes)
+            allSizes.append(sizes)
+
 
         #Show all images
         fig, ((ax1,ax2),(ax3,ax4)) = plt.subplots(2,2)
@@ -254,3 +231,18 @@ if __name__ == "__main__":
         ax2.imshow(allImages[1])
         ax3.imshow(allImages[2])
         ax4.imshow(allImages[3])
+        plt.show()
+        
+        plt.close()
+        
+        fig, (ax1, ax2, ax3) = plt.subplots(1,3)
+        ax1.set_xticks([1, 2, 3, 4])
+        ax1.bar([1, 2, 3, 4], allSizes[0])
+        ax2.set_xticks([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
+        ax2.bar([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], allSizes[1])
+        ax3.set_xticks([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32])
+        ax3.bar([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32], allSizes[2])
+        
+        plt.show()
+        
+        i += 1
